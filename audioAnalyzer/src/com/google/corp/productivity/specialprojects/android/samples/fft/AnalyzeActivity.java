@@ -33,7 +33,9 @@ import android.graphics.RectF;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.SystemClock;
 import android.os.Vibrator;
 import android.preference.PreferenceActivity;
@@ -75,7 +77,7 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
   private final static int AGC_OFF = MediaRecorder.AudioSource.VOICE_RECOGNITION;
 
   private int fftBins = 4096;
-  private int sampleRate = 8000;
+  private int sampleRate = 16000;
   private int updateMs = 150;
   private AnalyzeView graphView;
   private Looper samplingThread;
@@ -87,13 +89,21 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
   
   double maxAmpFreq = Double.NaN, maxAmpDB = Double.NaN;
   double minFreq = 200;
-  int[] maxAmpFreqNumArray = new int[sampleRate/2];
-  int[] maxAmpDBArray = new int[sampleRate/2];
+  int bufferSize = 20;
+  int maxAmpFreqOverall = 0;
+  int[] maxAmpFreqArray = new int[bufferSize];
+  int maxAmpFreqIndex = 0;
+  boolean ifToneDetected = false;
+  
+  TextView freqTextView;
+  
+  int[] maxAmpDBArray = new int[500];
   //ArrayList< HashMap< Double, Integer > > maxAmpFreqMapArray = new ArrayList< HashMap< Double, Integer > > ();
   //HashMap<Double, Integer> maxAmpFreqMap = new HashMap<Double, Integer>();
   //ArrayList<Double> maxAmpFreqArray = new ArrayList <Double> ();
   //ArrayList<Integer> maxAmpFreqNumArray = new ArrayList <Integer> ();
 
+  Handler mHandler = new Handler();
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -112,8 +122,32 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
       }
     }, "select");
     
-    initArray(maxAmpFreqNumArray);
+    initArray(maxAmpFreqArray);
     initArray(maxAmpDBArray);
+    
+    freqTextView = (TextView) findViewById(R.id.maxAmpFreq);
+    
+    Runnable runnable = new Runnable() {
+        @Override
+        public void run() {                
+            {   
+                if (ifToneDetected){
+                	freqTextView.setText(
+              			"maxAmpFreq = " + String.valueOf(maxAmpFreqOverall) + "HZ");
+                	freqTextView.setTextColor(Color.rgb(200,0,0));
+                } else {
+                	freqTextView.setText(
+                    			"maxAmpFreq = " + String.valueOf(maxAmpFreq) + "Hz");
+                	freqTextView.setTextColor(Color.rgb(0,200,0));
+                }
+                
+                mHandler.postDelayed(this, 10);
+                
+            }
+        }
+    };        
+    mHandler.post(runnable);
+    
   }
 
   /**
@@ -163,18 +197,6 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
    Log.i(TAG, key + "=" + prefs);
    applyPreferences(prefs, key);
   }
-
-  /*@Override
-  
-  public boolean onTouchEvent(MotionEvent event) {
-    if (isMeasure) {
-      measureEvent(event);
-    } else {
-      scaleEvent(event);
-    }
-    graphView.invalidate();
-    return super.onTouchEvent(event);
-  }*/
 
   public static class MyPreferences extends PreferenceActivity {
     @Override
@@ -288,20 +310,9 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
           isPaused = pause;
           if (samplingThread != null) {
             samplingThread.setPause(isPaused);
-            int maxAmpFreqOverall = findMaxFreq(maxAmpFreqNumArray);
-        	  ((TextView) findViewById(R.id.maxAmpFreq)).setText(
-      			"maxAmpFreq = " + String.valueOf(maxAmpFreqOverall) + "HZ\n" + "maxAmpDB = " 
-      							+ String.valueOf(Math.round(maxAmpDBArray[maxAmpFreqOverall - 1])) + "db");
-      	  ((TextView) findViewById(R.id.maxAmpFreq)).setTextColor(Color.rgb(200,0,0));
-
           }
         }
-        
-        if (!isPaused) {
-      	  ((TextView) findViewById(R.id.maxAmpFreq)).setText(
-        			"maxAmpFreq =     "+ "HZ\n" + "maxAmpDB =     " + "db");
-      	  ((TextView) findViewById(R.id.maxAmpFreq)).setTextColor(Color.rgb(0,200,0));
-        }
+
         
         return false;
     }
@@ -310,15 +321,12 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
     }
     if (v.getId() == R.id.bins) {
         fftBins = Integer.parseInt(value);
-        //if (samplingThread != null) samplingThread.setPause(isPaused);
     } else if (v.getId() == R.id.sampling_rate) {
-        //if (samplingThread != null) samplingThread.setPause(isPaused);
         sampleRate = Integer.parseInt(value);
         RectF bounds = graphView.getBounds();
         bounds.right = sampleRate / 2;
         graphView.setBounds(bounds);
     } else if (v.getId() == R.id.db) {
-        //if (samplingThread != null) samplingThread.setPause(isPaused);
         RectF bounds = graphView.getBounds();
         bounds.bottom = Integer.parseInt(value);
         graphView.setBounds(bounds);
@@ -327,15 +335,47 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
     return true;
   }
 
-private int  findMaxFreq(int[] myArray) { 
-	int result = 0;
-	for (int i = 0; i < myArray.length; i++){
-		if (result < myArray[i]){
-			result = i;
-		}
+public class popularElement{
+	private int element;
+	private int repeatCount;
+	private int avg;
+	
+	popularElement(int e, int c, int a){
+		this.element = e;
+		this.repeatCount = c;
+		this.avg = a;
 	}
-	initArray(myArray);
-	return result + 1;
+	
+}
+  
+private popularElement findPolularElement(int[] a) { 
+  int count = 1, tempCount;
+  int popular = a[0];
+  int sum = a[0];
+  int temp = 0;
+  
+  for (int i = 0; i < (a.length - 1); i++)
+  {
+	sum = sum + a[i + 1];
+    temp = a[i];
+    tempCount = 0;
+    
+    for (int j = 1; j < a.length; j++)
+    {
+      
+      if (temp > a[j] - 5 && temp < a[j] + 5)
+        tempCount++;
+    }
+    if (tempCount > count)
+    {
+      popular = temp;
+      count = tempCount;
+    }
+  }
+  //Log.i("avg", String.valueOf(sum));
+  int avg = (int)(sum/a.length);
+	  	  
+  return new popularElement(popular, count, avg);
 }
 
 private void initArray(int[] myArray){
@@ -490,6 +530,7 @@ private void updateAllLabels() {
         convertToDb(fftData, scale);
         calculatePeak(fftData);
         update(fftData);
+
       }
       Log.i(TAG, "Releasing Audio");
       record.stop();
@@ -539,9 +580,30 @@ private void updateAllLabels() {
         }
         
         maxAmpFreq = Math.round(maxAmpFreq);
-        Log.i("maxAmpFreq", String.valueOf(maxAmpFreq));
-        maxAmpFreqNumArray[(int)maxAmpFreq - 1]= maxAmpFreqNumArray[(int)maxAmpFreq - 1] + 1;
-        maxAmpDBArray[(int)maxAmpFreq - 1] = (int)maxAmpDB;
+        maxAmpFreqArray[maxAmpFreqIndex] = (int)maxAmpFreq;
+        maxAmpFreqIndex = (maxAmpFreqIndex + 1) % bufferSize;
+        
+        popularElement myPop = findPolularElement(maxAmpFreqArray);
+
+        Log.i("maxAmpFreq", String.valueOf(myPop.repeatCount));
+        Log.i("avg", String.valueOf(myPop.avg));
+        Log.i("avg", String.valueOf(myPop.element));
+        
+        if (myPop.repeatCount > bufferSize* 0.6){
+        	maxAmpFreqOverall = myPop.element;
+        	if (Math.abs(myPop.avg - myPop.element) < 10){
+        		if (maxAmpFreqOverall > 200){
+            		ifToneDetected = true;
+            	}else {
+            		ifToneDetected = false;
+            	}        		
+        	}else {
+        		ifToneDetected = false;
+        	}   
+        }else {
+        	ifToneDetected = false;
+        }
+
         
     }
     
