@@ -52,6 +52,14 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Audio "FFT" analyzer.
@@ -79,6 +87,12 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
   
   double maxAmpFreq = Double.NaN, maxAmpDB = Double.NaN;
   double minFreq = 200;
+  int[] maxAmpFreqNumArray = new int[sampleRate/2];
+  int[] maxAmpDBArray = new int[sampleRate/2];
+  //ArrayList< HashMap< Double, Integer > > maxAmpFreqMapArray = new ArrayList< HashMap< Double, Integer > > ();
+  //HashMap<Double, Integer> maxAmpFreqMap = new HashMap<Double, Integer>();
+  //ArrayList<Double> maxAmpFreqArray = new ArrayList <Double> ();
+  //ArrayList<Integer> maxAmpFreqNumArray = new ArrayList <Integer> ();
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
@@ -97,6 +111,9 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
         ((TextView) view).setFreezesText(true);
       }
     }, "select");
+    
+    initArray(maxAmpFreqNumArray);
+    initArray(maxAmpDBArray);
   }
 
   /**
@@ -264,42 +281,72 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
       // Log.i(TAG, "Click: test=" + isTesting);
       return false;
     }
+    boolean pause = false;
     if (v.getId() == R.id.run) {
-      boolean pause = value.equals("stop");
+        pause = value.equals("stop");
+        if (isPaused != pause) {
+          isPaused = pause;
+          if (samplingThread != null) {
+            samplingThread.setPause(isPaused);
+            int maxAmpFreqOverall = findMaxFreq(maxAmpFreqNumArray);
+        	  ((TextView) findViewById(R.id.maxAmpFreq)).setText(
+      			"maxAmpFreq = " + String.valueOf(maxAmpFreqOverall) + "HZ\n" + "maxAmpDB = " 
+      							+ String.valueOf(Math.round(maxAmpDBArray[maxAmpFreqOverall - 1])) + "db");
+      	  ((TextView) findViewById(R.id.maxAmpFreq)).setTextColor(Color.rgb(200,0,0));
 
-      if (isPaused != pause) {
-        isPaused = pause;
-        if (samplingThread != null) {
-          samplingThread.setPause(isPaused);
-      	  ((TextView) findViewById(R.id.maxAmpFreq)).setText(
-    			"maxAmpFreq = " + String.valueOf(maxAmpFreq) + "HZ\n" + "maxAmpDB = " + String.valueOf(Math.round(maxAmpDB)) + "db");
-    	  ((TextView) findViewById(R.id.maxAmpFreq)).setTextColor(Color.rgb(200,0,0));
+          }
         }
-      }
-      
-      if (!isPaused) {
-    	  ((TextView) findViewById(R.id.maxAmpFreq)).setTextColor(Color.rgb(0,200,0));
-      }
-      
-      return false;
+        
+        if (!isPaused) {
+      	  ((TextView) findViewById(R.id.maxAmpFreq)).setText(
+        			"maxAmpFreq =     "+ "HZ\n" + "maxAmpDB =     " + "db");
+      	  ((TextView) findViewById(R.id.maxAmpFreq)).setTextColor(Color.rgb(0,200,0));
+        }
+        
+        return false;
+    }
+    if (isPaused) {
+    	return false;
+    }
+    if (v.getId() == R.id.bins) {
+        fftBins = Integer.parseInt(value);
+        //if (samplingThread != null) samplingThread.setPause(isPaused);
+    } else if (v.getId() == R.id.sampling_rate) {
+        //if (samplingThread != null) samplingThread.setPause(isPaused);
+        sampleRate = Integer.parseInt(value);
+        RectF bounds = graphView.getBounds();
+        bounds.right = sampleRate / 2;
+        graphView.setBounds(bounds);
+    } else if (v.getId() == R.id.db) {
+        //if (samplingThread != null) samplingThread.setPause(isPaused);
+        RectF bounds = graphView.getBounds();
+        bounds.bottom = Integer.parseInt(value);
+        graphView.setBounds(bounds);
     }
     
-    if (v.getId() == R.id.bins) {
-      fftBins = Integer.parseInt(value);
-    } else if (v.getId() == R.id.sampling_rate) {
-      sampleRate = Integer.parseInt(value);
-      RectF bounds = graphView.getBounds();
-      bounds.right = sampleRate / 2;
-      graphView.setBounds(bounds);
-    } else if (v.getId() == R.id.db) {
-      RectF bounds = graphView.getBounds();
-      bounds.bottom = Integer.parseInt(value);
-      graphView.setBounds(bounds);
-    }
     return true;
   }
 
-  private void updateAllLabels() {
+private int  findMaxFreq(int[] myArray) { 
+	int result = 0;
+	for (int i = 0; i < myArray.length; i++){
+		if (result < myArray[i]){
+			result = i;
+		}
+	}
+	initArray(myArray);
+	return result + 1;
+}
+
+private void initArray(int[] myArray){
+	
+	for (int i = 0; i < myArray.length; i ++ ){
+		myArray[i] = 0;
+	}
+	
+}
+
+private void updateAllLabels() {
     refreshCursorLabel();
     refreshMaxFreqLabel();
     refreshMinFreqLabel();
@@ -492,9 +539,13 @@ public class AnalyzeActivity extends Activity implements OnLongClickListener, On
         }
         
         maxAmpFreq = Math.round(maxAmpFreq);
+        Log.i("maxAmpFreq", String.valueOf(maxAmpFreq));
+        maxAmpFreqNumArray[(int)maxAmpFreq - 1]= maxAmpFreqNumArray[(int)maxAmpFreq - 1] + 1;
+        maxAmpDBArray[(int)maxAmpFreq - 1] = (int)maxAmpDB;
         
     }
     
+  
     private void update(final double[] data) {
       AnalyzeActivity.this.runOnUiThread(new Runnable() {
         @Override

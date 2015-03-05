@@ -20,14 +20,14 @@
 
     <TextView
         android:id="@+id/maxAmpFreq"
-        android:layout_width="wrap_content"
+        android:layout_width="500dp"
         android:layout_height="wrap_content"
-        android:text="maxAmpFreq =      Hz\n maxAmpDB =     db"
-        
+        android:text="maxAmpFreq =        Hz\n maxAmpDB =       db"
+        android:textSize="40sp"
         android:textAppearance="?android:attr/textAppearanceLarge" />
 
     <include
-        android:layout_width="684dp"
+        android:layout_width="550dp"
         android:layout_height="match_parent"
         layout="@layout/buttons" />
 
